@@ -32,5 +32,31 @@ namespace ElectricityApp.Controllers
 
         }
 
+        [HttpGet("api/AllAgregatedData")]
+        public async Task<Responce<List<ElectricityDto>>> GetAllAgregatedData()
+        {
+            var result = await _dataAgregationService.GetAllAgregatedData();
+
+            if (result.success)
+            {
+                return Responce<List<ElectricityDto>>.Success(result.Content);
+            }
+
+            return Responce<List<ElectricityDto>>.Failure(result.Content, 504, result.error);
+        }
+
+
+        [HttpGet("api/AgregatedData/{pageNr}/{pageSize}")]
+        public async Task<Responce<List<ElectricityDto>>> GetAgregatedDataByPage(int pageNr = 1, int pageSize = 20)
+        {
+            var result = await _dataAgregationService.GetAgregatedDataByPage(pageNr, pageSize);
+
+            if (result.success)
+            {
+                return Responce<List<ElectricityDto>>.Success(result.Content);
+            }
+
+            return Responce<List<ElectricityDto>>.Failure(result.Content, 504, result.error);
+        }
     }
 }

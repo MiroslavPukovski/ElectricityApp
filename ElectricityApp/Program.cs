@@ -7,6 +7,8 @@ using ElectricityApp.Models;
 using Microsoft.Extensions.DependencyInjection;
 using ElectricityApp.Services.Contracts;
 using log4net.Config;
+using Microsoft.AspNetCore.ResponseCompression;
+using System.IO.Compression;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,17 +17,38 @@ builder.Host.ConfigureAppConfiguration(app => app.AddJsonFile("appsettings.json"
 //Log4net 
 XmlConfigurator.Configure(new FileInfo("log4net.config"));
 
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.Fastest;
+});
+
+builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.SmallestSize;
+});
+
 builder.Host.ConfigureServices((host, services) =>
 {
     var config = host.Configuration;
 
     services.AddDbContext<WebDatabaseContext>();
+
     
+
     //Background service DI
     services.AddHostedService<CSVReaderService>();
     services.AddSingleton<CSVReaderService>();
 
     services.AddScoped<IDataAgregationService, DataAgregationService>();
+
+    
 });
 
 
@@ -41,6 +64,8 @@ builder.Services.AddSwaggerGen(x =>
 
 
 var app = builder.Build();
+
+app.UseResponseCompression();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -61,6 +86,8 @@ app.UseSwaggerUI(c =>
 app.UseRouting();
 
 app.UseAuthorization();
+
+
 
 app.MapControllerRoute(
     name: "default",

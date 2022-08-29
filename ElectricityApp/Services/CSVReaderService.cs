@@ -6,6 +6,7 @@ using CsvHelper.Configuration;
 using static System.Net.Mime.MediaTypeNames;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Data.SqlClient.Server;
+using Microsoft.Data.SqlClient;
 
 namespace ElectricityApp.Services
 {
@@ -38,9 +39,20 @@ namespace ElectricityApp.Services
         {
             await CSVFileScraper();
 
+           
+
             using (var serviseScope = _serviceScopeFactory.CreateScope())
             {
                 var dbContext = serviseScope.ServiceProvider.GetRequiredService<WebDatabaseContext>();
+
+                var oldRecors = dbContext.electricityDB.ToList();
+
+                foreach(var oldRecor in oldRecors)
+                {
+                    dbContext.electricityDB.Remove(oldRecor);
+                }
+                
+
 
                 var ElectricityEntities = new List<ElectricityModel>();
                 var csvFilesPath = FindCsvFiles(_csvFileFolder);
@@ -75,19 +87,21 @@ namespace ElectricityApp.Services
                         }
                         try
                         {
-                            await dbContext.AddRangeAsync(ElectricityEntities);
-
                             
+
+                            await dbContext.AddRangeAsync(ElectricityEntities);
+                            _logeer.LogInformation("succesfuly upload data to DB");
+
                         }
                         catch(Exception e)
                         {
+                            _logeer.LogWarning($"Adding to DB failure, info: {e.Message}");
                             Console.WriteLine(e.Message);
                         }
                     }
                 }
                 await dbContext.SaveChangesAsync();
-
-                _logeer.LogInformation("succesfuly upload data to DB");
+                _logeer.LogInformation("succesfuly Save Changes");
             }
         }
 
