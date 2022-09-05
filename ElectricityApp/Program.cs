@@ -1,98 +1,94 @@
 using ElectricityApp.Services;
 using Microsoft.EntityFrameworkCore;
-using System;
-using Microsoft.OpenApi.Models;
-using Microsoft.AspNetCore.Builder;
-using ElectricityApp.Models;
-using Microsoft.Extensions.DependencyInjection;
-using ElectricityApp.Services.Contracts;
-using log4net.Config;
 using Microsoft.AspNetCore.ResponseCompression;
 using System.IO.Compression;
+using ElectricityApp.Data;
+using Serilog;
 
-var builder = WebApplication.CreateBuilder(args);
+Log.Logger = new LoggerConfiguration()
+    .MinimumLevel.Override("Microsoft", Serilog.Events.LogEventLevel.Information)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
-builder.Host.ConfigureAppConfiguration(app => app.AddJsonFile("appsettings.json"));
-
-//Log4net 
-XmlConfigurator.Configure(new FileInfo("log4net.config"));
-
-builder.Services.AddResponseCompression(options =>
+try
 {
-    options.EnableForHttps = true;
-    options.Providers.Add<BrotliCompressionProvider>();
-    options.Providers.Add<GzipCompressionProvider>();
-});
+    Log.Information("Starting the web host");
 
-builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
-{
-    options.Level = CompressionLevel.Fastest;
-});
+    var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.Configure<GzipCompressionProviderOptions>(options =>
-{
-    options.Level = CompressionLevel.SmallestSize;
-});
+    // Full setup serilog. Reading settings from appsettings.json, plus enables Serilog
+    builder.Host.UseSerilog((context, services, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext());
 
-builder.Host.ConfigureServices((host, services) =>
-{
-    var config = host.Configuration;
+    builder.Services.AddDbContext<ApplicationDbContext>(option =>
+    option.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-    services.AddDbContext<WebDatabaseContext>();
+    builder.Services.AddResponseCompression(options =>
+    {
+        options.EnableForHttps = true;
+        options.Providers.Add<BrotliCompressionProvider>();
+        options.Providers.Add<GzipCompressionProvider>();
+    });
 
-    
+    builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+    {
+        options.Level = CompressionLevel.Fastest;
+    });
 
-    //Background service DI
-    services.AddHostedService<CSVReaderService>();
-    services.AddSingleton<CSVReaderService>();
+    builder.Services.Configure<GzipCompressionProviderOptions>(options =>
+    {
+        options.Level = CompressionLevel.SmallestSize;
+    });
 
-    services.AddScoped<IDataAgregationService, DataAgregationService>();
-
-    
-});
-
-
-// Add services to the container.
-builder.Services.AddControllersWithViews();
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-
-builder.Services.AddSwaggerGen(x =>
-{
-    x.SwaggerDoc("v1", new OpenApiInfo { Title = "Web API", Version = "v1" });
-});
+    builder.Host.ConfigureServices((host, services) =>
+    {
+        //Background service 
+        services.AddHostedService<CSVReaderService>();
+        services.AddSingleton<CSVReaderService>();
+    });
 
 
-var app = builder.Build();
+    // Add services to the container.
+    builder.Services.AddControllers().AddNewtonsoftJson(option =>
+    option.SerializerSettings.ReferenceLoopHandling =
+    Newtonsoft.Json.ReferenceLoopHandling.Ignore);
 
-app.UseResponseCompression();
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
 
-// Configure the HTTP request pipeline.
-if (!app.Environment.IsDevelopment())
-{
-    app.UseExceptionHandler("/Home/Error");
-    app.UseHsts();
+    var app = builder.Build();
+
+    // Configure the HTTP request pipeline.
+    app.UseSerilogRequestLogging(configure =>
+    {
+        configure.MessageTemplate = "HTTP {RequestMethod} ({UserId}) responded {StatusCode} in {Elapsed:0.000}ms";
+    }); // log all HTTP requests
+
+    app.UseResponseCompression();
+
+    // Configure the HTTP request pipeline.
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI();
+    }
+
+    app.UseAuthorization();
+    app.MapControllers();
+    app.Run();
 }
-app.UseHttpsRedirection();
-app.UseStaticFiles();
-
-app.UseSwagger();
-app.UseSwaggerUI(c =>
+catch(Exception ex)
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Web API");
-    c.RoutePrefix = "WebServices";
-});
+    Log.Fatal(ex, "Host terminated unexpectedly");
+    return 1;
+    
+}
+finally
+{
+    Log.CloseAndFlush();
+}
 
-app.UseRouting();
-
-app.UseAuthorization();
-
-
-
-app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}");
-
-app.Run();
-
-
+return 0;
